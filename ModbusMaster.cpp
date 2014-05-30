@@ -102,7 +102,7 @@ void ModbusMaster::begin(void)
 //Default No Parity
 void ModbusMaster::begin(uint32_t BaudRate)
 {
-  begin(BaudRate, 'n');
+  begin(BaudRate, SERIAL_8N1);
 }
 
 /**
@@ -116,50 +116,32 @@ Call once class has been instantiated, typically within setup().
 @param parity 'n', 'e', 'o'
 @ingroup setup
 */
-void ModbusMaster::begin(uint32_t BaudRate, uint8_t parity)
+void ModbusMaster::begin(uint32_t BaudRate, uint8_t config)
 {
-	uint8_t parityBits = 0;
-	switch(parity)
-	{
-		case 'o':
-			parityBits = B00110000;
-			break;
-		case 'e':
-			parityBits = B00100000;
-			break;
-		case 'n':
-			parityBits = B00001000; //2-Stop Bits for Parity: None
-			break;
-	}
-
   switch(_u8SerialPort)
   {
 #if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega644P__) || defined(__AVR_ATmega1284P__) 
     case 1:
       MBSerial = Serial1;
-	  UCSR1C |= parityBits;
       break;
 #endif
 #if defined(__AVR_ATmega1280__)
     case 2:
       MBSerial = Serial2;
-	  UCSR2C |= parityBits;
       break;
       
     case 3:
       MBSerial = Serial3;
-	  UCSR3C |= parityBits;
       break;
 #endif
       
     case 0:
     default:
       MBSerial = Serial;
-	  UCSR0C |= parityBits;
       break;
   }
   
-  MBSerial.begin(BaudRate);
+  MBSerial.begin(BaudRate, config);
 }
 
 void ModbusMaster::setupRTS(uint8_t pinID)
@@ -637,9 +619,6 @@ uint8_t ModbusMaster::ModbusMasterTransaction(uint8_t u8MBFunction)
   u8ModbusADU[u8ModbusADUSize++] = highByte(u16CRC);
   u8ModbusADU[u8ModbusADUSize] = 0;
   
-  //Matt Reba CRC Missing Hack:
-  u8ModbusADUSize += 2;
-  
   // transmit request
   if (_u8RTSMask) *_u8RTSPort |= _u8RTSMask; //Enable RTS Line if defined
   
@@ -650,6 +629,12 @@ uint8_t ModbusMaster::ModbusMasterTransaction(uint8_t u8MBFunction)
   
   u8ModbusADUSize = 0;
   MBSerial.flush();
+
+  //Fix for Serial.Flush() not waiting for buffer to clear. Hardcoded to Serial1
+  while (!(UCSR1A & (1 << UDRE1)))  // Wait for empty transmit buffer
+	 UCSR1A |= 1 << TXC1;  // mark transmission not complete
+  while (!(UCSR1A & (1 << TXC1)));   // Wait for the transmission to complete
+		  
   if (_u8RTSMask) *_u8RTSPort &= ~_u8RTSMask; //Disable RTS Line if defined
 	
   // loop until we run out of time or bytes, or an error occurs
